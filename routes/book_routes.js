@@ -7,8 +7,8 @@ import { upload } from '../utils/multer.js';
 const bookRoutes = express.Router();
 
 // Routes yêu cầu xác thực và phân quyền Admin
-bookRoutes.post('/', verifyToken, checkAdminRole, upload.array('images', 10), bookController.addBook);
-bookRoutes.put('/:id', verifyToken, checkAdminRole, upload.array('images', 10), bookController.updateBook);
+bookRoutes.post('/', verifyToken, checkAdminRole, upload.array('images', 5), bookController.addBook);
+bookRoutes.put('/:id', verifyToken, checkAdminRole, upload.array('images', 5), bookController.updateBook);
 bookRoutes.delete('/:id', verifyToken, checkAdminRole, bookController.deleteBook);
 bookRoutes.put('/:id/stock', verifyToken, bookController.updateBookStock);
 bookRoutes.put('/:id/sales', bookController.updateBookSales);
@@ -20,7 +20,5 @@ bookRoutes.get('/:id', bookController.getBookById);
 
 // Route khôi phục sách đã xóa mềm
 bookRoutes.put('/:id/restore', verifyToken, checkAdminRole, bookController.restoreBook);
-// Route lấy danh sách sách đã xóa mềm
-bookRoutes.get('/deleted', verifyToken, checkAdminRole, bookController.getDeletedBooks);
 
 export default bookRoutes;

@@ -4,7 +4,7 @@ import response from '../utils/response.js';
 import mongoose from 'mongoose';
 import { deletePhysicalImages } from '../utils/image_utils.js';
 import axios from 'axios';
-const ORDER_SERVICE = process.env.ORDER_SERVICE || 'http://localhost:8001';
+
 const book_controller = {
     addBook: async (req, res, next) => {
         try {
@@ -80,13 +80,18 @@ const book_controller = {
             } else if (status === 'active' || !status) {
                 query.status = 'active';
             }
-            // Thêm tìm kiếm theo từ khóa q
+
+            // Tìm kiếm theo từ khóa q
+            let searchQuery = {};
             if (q && q.trim() !== '') {
-                query.$or = [
-                    { title: { $regex: q.trim(), $options: 'i' } },
-                    { description: { $regex: q.trim(), $options: 'i' } }
-                ];
+                const searchTerm = q.trim();
+                searchQuery = {
+                    $or: [
+                        { title: { $regex: searchTerm, $options: 'i' } }
+                    ]
+                };
             }
+
             // Lọc theo danh mục
             if (category) {
                 const categoryIds = category.split(',').filter(id => mongoose.Types.ObjectId.isValid(id));
@@ -144,6 +149,7 @@ const book_controller = {
                 if (min !== undefined) query.price.$gte = min;
                 if (max !== undefined) query.price.$lte = max;
             }
+
             // Xây dựng sort option
             let sortOption = {};
             if (sort) {
@@ -152,32 +158,130 @@ const book_controller = {
             } else {
                 sortOption = { createdAt: -1 };
             }
+
             // Phân trang
             const page = parseInt(pageParam) || 1;
             const limit = parseInt(limitParam) || 12;
             const skip = (page - 1) * limit;
 
-            // Đếm tổng số sách
-            const total = await Book.countDocuments(query);
-            // Lấy danh sách sách với populate
-            const books = await Book.find(query)
-                .populate('category')
-                .populate('publisher')
-                .populate('author')
-                .populate('images')
-                .sort(sortOption)
-                .skip(skip)
-                .limit(limit);
+            // Nếu có tìm kiếm theo từ khóa, sử dụng aggregation để tìm kiếm theo author và publisher
+            if (q && q.trim() !== '') {
+                const searchTerm = q.trim();
 
-            return response(res, 200, 'Lấy danh sách sách thành công', {
-                books: books,
-                pagination: {
-                    currentPage: page,
-                    totalPages: Math.ceil(total / limit),
-                    totalItems: total,
-                    itemsPerPage: limit
-                },
-            });
+                // Tạo aggregation pipeline
+                const pipeline = [
+                    // Match theo các điều kiện lọc cơ bản
+                    { $match: query },
+                    // Lookup author
+                    {
+                        $lookup: {
+                            from: 'authors',
+                            localField: 'author',
+                            foreignField: '_id',
+                            as: 'authorData'
+                        }
+                    },
+                    // Lookup publisher
+                    {
+                        $lookup: {
+                            from: 'publishers',
+                            localField: 'publisher',
+                            foreignField: '_id',
+                            as: 'publisherData'
+                        }
+                    },
+                    // Lookup category
+                    {
+                        $lookup: {
+                            from: 'categories',
+                            localField: 'category',
+                            foreignField: '_id',
+                            as: 'categoryData'
+                        }
+                    },
+                    // Lookup images
+                    {
+                        $lookup: {
+                            from: 'images',
+                            localField: 'images',
+                            foreignField: '_id',
+                            as: 'imagesData'
+                        }
+                    },
+                    // Match theo từ khóa tìm kiếm
+                    {
+                        $match: {
+                            $or: [
+                                { title: { $regex: searchTerm, $options: 'i' } },
+                                { 'authorData.name': { $regex: searchTerm, $options: 'i' } },
+                                { 'publisherData.name': { $regex: searchTerm, $options: 'i' } }
+                            ]
+                        }
+                    },
+                    // Project để format lại dữ liệu
+                    {
+                        $project: {
+                            _id: 1,
+                            title: 1,
+                            description: 1,
+                            price: 1,
+                            availability: 1,
+                            stockCount: 1,
+                            status: 1,
+                            createdAt: 1,
+                            updatedAt: 1,
+                            author: { $arrayElemAt: ['$authorData', 0] },
+                            publisher: { $arrayElemAt: ['$publisherData', 0] },
+                            category: { $arrayElemAt: ['$categoryData', 0] },
+                            images: '$imagesData'
+                        }
+                    },
+                    // Sort
+                    { $sort: sortOption },
+                    // Count total
+                    {
+                        $facet: {
+                            metadata: [{ $count: 'total' }],
+                            data: [{ $skip: skip }, { $limit: limit }]
+                        }
+                    }
+                ];
+
+                const result = await Book.aggregate(pipeline);
+                const total = result[0].metadata[0]?.total || 0;
+                const books = result[0].data || [];
+
+                return response(res, 200, 'Lấy danh sách sách thành công', {
+                    books: books,
+                    pagination: {
+                        currentPage: page,
+                        totalPages: Math.ceil(total / limit),
+                        totalItems: total,
+                        itemsPerPage: limit
+                    },
+                });
+            } else {
+                // Nếu không có tìm kiếm, sử dụng query thông thường
+                const total = await Book.countDocuments(query);
+                const books = await Book.find(query)
+                    .populate('category')
+                    .populate('publisher')
+                    .populate('author')
+                    .populate('images')
+                    .sort(sortOption)
+                    .skip(skip)
+                    .limit(limit);
+
+                return response(res, 200, 'Lấy danh sách sách thành công', {
+                    books: books,
+                    pagination: {
+                        currentPage: page,
+                        totalPages: Math.ceil(total / limit),
+                        totalItems: total,
+                        itemsPerPage: limit
+                    },
+                });
+            }
         } catch (error) {
             next(error);
         }
@@ -198,10 +302,23 @@ const book_controller = {
                 throw err;
             }
 
+            // Gọi sang mainService để lấy rating trung bình động
+            let averageRating = 0;
+            let totalReviews = 0;
+            try {
+                const resp = await axios.get(`${process.env.MAIN_SERVICE}/api/reviews/book/${id}/average-rating`);
+                if (resp.data && resp.data.data) {
+                    averageRating = resp.data.data.averageRating;
+                    totalReviews = resp.data.data.totalReviews;
+                }
+            } catch (err) {
+                console.error('Không lấy được rating từ mainService:', err.message);
+            }
+
             // Đảm bảo trả về các trường rating cho frontend
             const bookObj = book.toObject();
-            bookObj.rating = bookObj.averageRating;
-            bookObj.reviewCount = bookObj.totalReviews;
+            bookObj.rating = averageRating;
+            bookObj.reviewCount = totalReviews;
             return response(res, 200, 'Lấy thông tin sách thành công', { book: bookObj });
         } catch (error) {
             next(error);
@@ -436,36 +553,6 @@ const book_controller = {
             book.status = 'active';
             await book.save();
             return response(res, 200, 'Khôi phục sách thành công', { book });
-        } catch (error) {
-            next(error);
-        }
-    },
-
-    // API lấy danh sách sách đã xóa mềm
-    getDeletedBooks: async (req, res, next) => {
-        try {
-            const { page: pageParam, limit: limitParam } = req.query;
-            const page = parseInt(pageParam) || 1;
-            const limit = parseInt(limitParam) || 12;
-            const skip = (page - 1) * limit;
-            const total = await Book.countDocuments({ status: 'deleted' });
-            const books = await Book.find({ status: 'deleted' })
-                .populate('category')
-                .populate('publisher')
-                .populate('author')
-                .populate('images')
-                .sort({ updatedAt: -1 })
-                .skip(skip)
-                .limit(limit);
-            return response(res, 200, 'Lấy danh sách sách đã xóa mềm thành công', {
-                books,
-                pagination: {
-                    currentPage: page,
-                    totalPages: Math.ceil(total / limit),
-                    totalItems: total,
-                    itemsPerPage: limit
-                },
-            });
         } catch (error) {
             next(error);
         }

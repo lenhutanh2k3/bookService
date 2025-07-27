@@ -7,7 +7,6 @@ import categoryRoutes from './routes/category_routes.js';
 import bookRoutes from './routes/book_routes.js';
 import authorRoutes from './routes/author_routes.js';
 import publisherRoutes from './routes/publisher_routes.js';
-import ratingRoutes from './routes/rating_routes.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -38,7 +37,6 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/authors', authorRoutes);
 app.use('/api/publishers', publisherRoutes);
-app.use('/api/books', ratingRoutes);
 
 
 app.listen(port, () => {
