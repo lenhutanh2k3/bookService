@@ -6,19 +6,23 @@ dotenv.config();
 const verifyToken = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
-        return response(res, 401, 'Không có token xác thực.'); 
+        return response(res, 401, 'Không có token xác thực.');
     }
+
     const token = authHeader.split(' ')[1];
     if (!token) {
-        return response(res, 401, 'Token không hợp lệ.'); 
+        return response(res, 401, 'Token không hợp lệ.');
     }
+
+
+
     try {
         const decoded = jwt.verify(token, process.env.SECRET_KEY);
         req.user = decoded;
-        next(); 
+        next();
     } catch (error) {
         console.error('Verify token error:', error);
-        
+
         if (error.name === 'TokenExpiredError') {
             return response(res, 401, 'Token đã hết hạn. Vui lòng đăng nhập lại.');
         } else if (error.name === 'JsonWebTokenError') {

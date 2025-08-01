@@ -11,6 +11,7 @@ bookRoutes.post('/', verifyToken, checkAdminRole, upload.array('images', 5), boo
 bookRoutes.put('/:id', verifyToken, checkAdminRole, upload.array('images', 5), bookController.updateBook);
 bookRoutes.delete('/:id', verifyToken, checkAdminRole, bookController.deleteBook);
 bookRoutes.put('/:id/stock', verifyToken, bookController.updateBookStock);
+bookRoutes.put('/:id/stock/cron', bookController.updateBookStock); // Route cho cronjob không cần xác thực
 bookRoutes.put('/:id/sales', bookController.updateBookSales);
 
 // Routes không yêu cầu xác thực (hoặc xác thực tùy chọn)
