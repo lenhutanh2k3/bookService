@@ -1,12 +1,24 @@
 
 import mongoose from 'mongoose';
 
+// Hàm chuyển đổi tiếng Việt thành không dấu
+function removeVietnameseAccents(str) {
+    return str
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+}
 const bookSchema = new mongoose.Schema({
     title: {
         type: String,
         required: [true, 'Tiêu đề sách là bắt buộc'],
         trim: true,
         unique: true,
+        index: true
+    },
+    titleNoAccent: {
+        type: String,
+        trim: true,
         index: true
     },
     description: {
@@ -69,6 +81,9 @@ bookSchema.pre('save', function (next) {
     if (this.isModified('stockCount') || this.isNew) {
         this.availability = this.stockCount > 0;
     }
+    if (this.isModified('title')) {
+        this.titleNoAccent = removeVietnameseAccents(this.title);
+    }
     next();
 });
 
@@ -76,6 +91,9 @@ bookSchema.pre('findOneAndUpdate', function (next) {
     const update = this.getUpdate();
     if (update && update.stockCount !== undefined) {
         update.availability = update.stockCount > 0;
+    }
+    if (update && update.title !== undefined) {
+        update.titleNoAccent = removeVietnameseAccents(update.title);
     }
     next();
 });

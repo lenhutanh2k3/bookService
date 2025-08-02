@@ -87,7 +87,8 @@ const book_controller = {
                 const searchTerm = q.trim();
                 searchQuery = {
                     $or: [
-                        { title: { $regex: searchTerm, $options: 'i' } }
+                        { title: { $regex: searchTerm, $options: 'i' } },
+                        { titleNoAccent: { $regex: searchTerm, $options: 'i' } }
                     ]
                 };
             }
@@ -164,92 +165,22 @@ const book_controller = {
             const limit = parseInt(limitParam) || 12;
             const skip = (page - 1) * limit;
 
-            // Nếu có tìm kiếm theo từ khóa, sử dụng aggregation để tìm kiếm theo author và publisher
+            // Nếu có tìm kiếm theo từ khóa, sử dụng query thông thường với populate
             if (q && q.trim() !== '') {
                 const searchTerm = q.trim();
 
-                // Tạo aggregation pipeline
-                const pipeline = [
-                    // Match theo các điều kiện lọc cơ bản
-                    { $match: query },
-                    // Lookup author
-                    {
-                        $lookup: {
-                            from: 'authors',
-                            localField: 'author',
-                            foreignField: '_id',
-                            as: 'authorData'
-                        }
-                    },
-                    // Lookup publisher
-                    {
-                        $lookup: {
-                            from: 'publishers',
-                            localField: 'publisher',
-                            foreignField: '_id',
-                            as: 'publisherData'
-                        }
-                    },
-                    // Lookup category
-                    {
-                        $lookup: {
-                            from: 'categories',
-                            localField: 'category',
-                            foreignField: '_id',
-                            as: 'categoryData'
-                        }
-                    },
-                    // Lookup images
-                    {
-                        $lookup: {
-                            from: 'images',
-                            localField: 'images',
-                            foreignField: '_id',
-                            as: 'imagesData'
-                        }
-                    },
-                    // Match theo từ khóa tìm kiếm
-                    {
-                        $match: {
-                            $or: [
-                                { title: { $regex: searchTerm, $options: 'i' } },
-                                { 'authorData.name': { $regex: searchTerm, $options: 'i' } },
-                                { 'publisherData.name': { $regex: searchTerm, $options: 'i' } }
-                            ]
-                        }
-                    },
-                    // Project để format lại dữ liệu
-                    {
-                        $project: {
-                            _id: 1,
-                            title: 1,
-                            description: 1,
-                            price: 1,
-                            availability: 1,
-                            stockCount: 1,
-                            status: 1,
-                            createdAt: 1,
-                            updatedAt: 1,
-                            author: { $arrayElemAt: ['$authorData', 0] },
-                            publisher: { $arrayElemAt: ['$publisherData', 0] },
-                            category: { $arrayElemAt: ['$categoryData', 0] },
-                            images: '$imagesData'
-                        }
-                    },
-                    // Sort
-                    { $sort: sortOption },
-                    // Count total
-                    {
-                        $facet: {
-                            metadata: [{ $count: 'total' }],
-                            data: [{ $skip: skip }, { $limit: limit }]
-                        }
-                    }
-                ];
+                // Kết hợp query cơ bản với searchQuery
+                const finalQuery = { ...query, ...searchQuery };
 
-                const result = await Book.aggregate(pipeline);
-                const total = result[0].metadata[0]?.total || 0;
-                const books = result[0].data || [];
+                const total = await Book.countDocuments(finalQuery);
+                const books = await Book.find(finalQuery)
+                    .populate('category')
+                    .populate('publisher')
+                    .populate('author')
+                    .populate('images')
+                    .sort(sortOption)
+                    .skip(skip)
+                    .limit(limit);
 
                 return response(res, 200, 'Lấy danh sách sách thành công', {
                     books: books,
@@ -401,15 +332,25 @@ const book_controller = {
             let finalImageIds = [];
             const oldImagesInDB = await Image.find({ _id: { $in: existingBook.images } });
 
+            // Lấy danh sách ID ảnh cũ từ request body (frontend đã lọc)
+            const existingImageIds = req.body.images ?
+                (Array.isArray(req.body.images) ? req.body.images : [req.body.images]) : [];
+
             if (keepExistingImages === 'true' || keepExistingImages === true) {
-                finalImageIds = existingBook.images.map(img => img.toString());
+                // Chỉ giữ lại những ảnh cũ mà frontend gửi lên (đã được lọc khi xóa)
+                const validExistingIds = existingImageIds.filter(id =>
+                    existingBook.images.some(img => img.toString() === id)
+                );
+                finalImageIds = validExistingIds;
             } else {
+                // Xóa tất cả ảnh cũ
                 if (oldImagesInDB.length > 0) {
                     await deletePhysicalImages(oldImagesInDB);
                     await Image.deleteMany({ _id: { $in: existingBook.images } });
                 }
             }
 
+            // Xử lý ảnh mới (files)
             if (files.length > 0) {
                 const newImagesData = files.map((file) => ({
                     filename: file.filename,
@@ -418,6 +359,17 @@ const book_controller = {
                 }));
                 const savedNewImages = await Image.insertMany(newImagesData);
                 finalImageIds = [...finalImageIds, ...savedNewImages.map(img => img._id.toString())];
+            }
+
+            // Xóa những ảnh cũ không còn được sử dụng
+            const imagesToDelete = existingBook.images.filter(imgId =>
+                !finalImageIds.includes(imgId.toString())
+            );
+
+            if (imagesToDelete.length > 0) {
+                const imagesToDeleteFromDB = await Image.find({ _id: { $in: imagesToDelete } });
+                await deletePhysicalImages(imagesToDeleteFromDB);
+                await Image.deleteMany({ _id: { $in: imagesToDelete } });
             }
 
             if (finalImageIds.length === 0) {
@@ -458,7 +410,6 @@ const book_controller = {
             next(error);
         }
     },
-
     deleteBook: async (req, res, next) => {
         try {
             const { id } = req.params;
@@ -517,25 +468,33 @@ const book_controller = {
             const { id } = req.params;
             const { quantity } = req.body;
 
-            if (!quantity || isNaN(quantity) || quantity <= 0) {
+            if (!quantity || isNaN(quantity)) {
                 let err = new Error('Số lượng bán không hợp lệ.');
                 err.statusCode = 400;
                 throw err;
             }
 
-            const book = await Book.findByIdAndUpdate(
-                id,
-                { $inc: { salesCount: quantity } },
-                { new: true }
-            );
-
+            const book = await Book.findById(id);
             if (!book) {
                 let err = new Error('Không tìm thấy sách.');
                 err.statusCode = 404;
                 throw err;
             }
 
-            return response(res, 200, 'Cập nhật salesCount thành công.', { book });
+            // Kiểm tra nếu giảm salesCount thì không được âm
+            if (quantity < 0 && book.salesCount + quantity < 0) {
+                let err = new Error(`Không thể giảm salesCount xuống dưới 0. Hiện tại: ${book.salesCount}, Yêu cầu giảm: ${-quantity}.`);
+                err.statusCode = 400;
+                throw err;
+            }
+
+            const updatedBook = await Book.findByIdAndUpdate(
+                id,
+                { $inc: { salesCount: quantity } },
+                { new: true }
+            );
+
+            return response(res, 200, 'Cập nhật salesCount thành công.', { book: updatedBook });
         } catch (error) {
             next(error);
         }
