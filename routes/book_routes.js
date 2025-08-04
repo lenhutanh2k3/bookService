@@ -17,6 +17,9 @@ bookRoutes.put('/:id/sales', bookController.updateBookSales);
 // Routes không yêu cầu xác thực (hoặc xác thực tùy chọn)
 bookRoutes.get('/', bookController.getAllBooks);
 bookRoutes.get('/multiple', bookController.getBooksByIds); // Phải đặt trước /:id
+
+
+
 bookRoutes.get('/:id', bookController.getBookById);
 
 // Route khôi phục sách đã xóa mềm

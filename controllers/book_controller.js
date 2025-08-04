@@ -23,7 +23,6 @@ const book_controller = {
                 err.statusCode = 409;
                 throw err;
             }
-
             // Lưu thông tin ảnh vào DB
             const newImagesData = files.map((file) => ({
                 filename: file.filename,
@@ -32,7 +31,6 @@ const book_controller = {
             }));
             const savedImages = await Image.insertMany(newImagesData);
             const imageIds = savedImages.map(img => img._id);
-
             // Tạo sách mới
             const newBook = new Book({
                 title,
@@ -45,16 +43,13 @@ const book_controller = {
                 availability: availability === 'true',
                 stockCount: parseInt(stockCount),
             });
-
             await newBook.save();
-
             // Populate dữ liệu để trả về
             const populatedBook = await Book.findById(newBook._id)
                 .populate('category')
                 .populate('publisher')
                 .populate('author')
                 .populate('images');
-
             return response(res, 201, 'Thêm sách thành công', { book: populatedBook });
         } catch (error) {
             // Xóa các file ảnh vật lý đã tải lên nếu có lỗi
@@ -69,7 +64,6 @@ const book_controller = {
             next(error);
         }
     },
-
     getAllBooks: async (req, res, next) => {
         try {
             const { q, category, available, minPrice, maxPrice, sort, page: pageParam, limit: limitParam, author, publisher, status } = req.query;
@@ -217,7 +211,6 @@ const book_controller = {
             next(error);
         }
     },
-
     getBookById: async (req, res, next) => {
         try {
             const { id } = req.params;
@@ -515,7 +508,9 @@ const book_controller = {
         } catch (error) {
             next(error);
         }
-    }
+    },
+
+
 };
 
 export default book_controller;
