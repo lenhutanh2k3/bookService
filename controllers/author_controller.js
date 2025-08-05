@@ -147,6 +147,22 @@ const author_controller = {
             }
             return response(res, error.statusCode || 500, error.message || 'Lỗi server nội bộ khi xóa tác giả.');
         }
+    },
+
+    // Thống kê tác giả
+    getAuthorStats: async (req, res) => {
+        try {
+            const total = await Author.countDocuments();
+            const active = await Author.countDocuments({ status: 'active' });
+
+            return response(res, 200, 'Lấy thống kê tác giả thành công', {
+                total,
+                active
+            });
+        } catch (error) {
+            console.error('Get author stats error:', error);
+            return response(res, 500, 'Lỗi khi lấy thống kê tác giả');
+        }
     }
 };
 

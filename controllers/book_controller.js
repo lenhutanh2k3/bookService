@@ -508,9 +508,7 @@ const book_controller = {
         } catch (error) {
             next(error);
         }
-    },
-
-
+    }
 };
 
 export default book_controller;

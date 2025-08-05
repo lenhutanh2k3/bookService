@@ -18,8 +18,6 @@ bookRoutes.put('/:id/sales', bookController.updateBookSales);
 bookRoutes.get('/', bookController.getAllBooks);
 bookRoutes.get('/multiple', bookController.getBooksByIds); // Phải đặt trước /:id
 
-
-
 bookRoutes.get('/:id', bookController.getBookById);
 
 // Route khôi phục sách đã xóa mềm
